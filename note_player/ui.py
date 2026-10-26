@@ -14,9 +14,10 @@ from .settings import Settings
 
 SONGS_DIR = Path(__file__).resolve().parent.parent / "songs"
 PROGRESS_WIDTH = 30
+FILENAME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ .")
 
 CLEAR = "\x1b[2J\x1b[H"
-BOLD, DIM, INVERT, RESET = "\x1b[1m", "\x1b[2m", "\x1b[7m", "\x1b[0m"
+BOLD, DIM, INVERT, RED, RESET = "\x1b[1m", "\x1b[2m", "\x1b[7m", "\x1b[31m", "\x1b[0m"
 
 # A held key auto-repeats in the terminal; repeats arrive every ~30-50 ms.
 # Presses of the same key closer together than this are treated as repeats.
@@ -100,19 +101,26 @@ def _keyboard_diagram() -> list[str]:
     return [f"  {DIM}{black}{RESET}", f"  {white}"]
 
 
-def play_console(keyboard: RawKeyboard, settings: Settings, player: NotePlayer) -> None:
+def play_console(
+    keyboard: RawKeyboard,
+    settings: Settings,
+    player: NotePlayer,
+    recorder: sequencer.Recorder | None = None,
+    recording_to: str = "",
+) -> None:
     instrument = instruments.create(settings.instrument)
     last_seen: dict[str, float] = {}
     recent: list[str] = []
 
     def render(status: str = "") -> None:
+        rec = f"{RED}● REC{RESET} {recording_to}  ·  " if recorder is not None else ""
         lines = [
-            f"{BOLD}Notes console{RESET}  ·  {settings.instrument}  ·  octave {settings.octave_shift:+d}"
+            f"{rec}{BOLD}Notes console{RESET}  ·  {settings.instrument}  ·  octave {settings.octave_shift:+d}"
             f"  ·  vol {settings.volume}%",
             "",
             *_keyboard_diagram(),
             "",
-            f"{DIM}z/x octave down/up · Esc back to menu{RESET}",
+            f"{DIM}z/x octave down/up · Esc {'stop and save' if recorder is not None else 'back to menu'}{RESET}",
             "",
             "Played: " + " ".join(recent[-16:]),
         ]
@@ -141,6 +149,8 @@ def play_console(keyboard: RawKeyboard, settings: Settings, player: NotePlayer) 
 
         frequency = frequency_for(key, settings.octave_shift)
         player.play(instrument, frequency, settings.duration, settings.volume / 100)
+        if recorder is not None:
+            recorder.press(frequency, now)
         recent.append(note_name(frequency))
         render()
 
@@ -197,6 +207,71 @@ def play_file(keyboard: RawKeyboard, settings: Settings, player: NotePlayer, pat
         player.stop_all()
 
 
+def _ask_filename(keyboard: RawKeyboard) -> Path | None:
+    """Type a song name; returns its path in SONGS_DIR, or None on Esc."""
+    name = ""
+    error = ""
+    while True:
+        lines = [
+            f"{BOLD}Save to file{RESET}",
+            "",
+            f"  File name: {name}{INVERT} {RESET}",
+            f"  {DIM}saved as {SONGS_DIR.name}/{_with_extension(name or '...')}{RESET}",
+        ]
+        if error:
+            lines += ["", f"  {RED}{error}{RESET}"]
+        lines += ["", f"{DIM}Enter start recording · Esc cancel{RESET}"]
+        _draw(lines)
+
+        key = keyboard.read_key()
+        error = ""
+        if key == "esc":
+            return None
+        if key == "backspace":
+            name = name[:-1]
+        elif key == "enter":
+            if not name.strip(" ."):
+                error = "Please type a name."
+                continue
+            path = SONGS_DIR / _with_extension(name.strip())
+            if path.exists() and not _confirm(keyboard, f"{path.name} already exists. Overwrite it?"):
+                continue
+            return path
+        elif key and len(key) == 1 and key in FILENAME_CHARS:
+            name += key
+
+
+def _with_extension(name: str) -> str:
+    return name if name.endswith(".notes") else f"{name}.notes"
+
+
+def _confirm(keyboard: RawKeyboard, question: str) -> bool:
+    _draw([question, "", f"{DIM}y yes · n no{RESET}"])
+    while (key := keyboard.read_key()) not in ("y", "n", "esc"):
+        pass
+    return key == "y"
+
+
+def save_to_file(keyboard: RawKeyboard, settings: Settings, player: NotePlayer) -> None:
+    path = _ask_filename(keyboard)
+    if path is None:
+        return
+    recorder = sequencer.Recorder(hold=settings.duration)
+    play_console(keyboard, settings, player, recorder, recording_to=path.name)
+    if not recorder:
+        message = "Nothing was played, so no file was saved."
+    else:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            steps = recorder.steps()
+            sequencer.save(path, steps)
+            message = f"Saved {len(steps)} steps to {path}"
+        except OSError as error:
+            message = f"{RED}Couldn't save: {error}{RESET}"
+    _draw([f"{BOLD}Save to file{RESET}", "", f"  {message}", "", f"{DIM}Press any key{RESET}"])
+    keyboard.read_key()
+
+
 def run(song: str | None = None) -> int:
     player = NotePlayer()
     if not player.backend.available():
@@ -213,12 +288,14 @@ def run(song: str | None = None) -> int:
                 play_file(keyboard, settings, player, Path(song))
                 return 0
             while True:
-                choice = _choose(keyboard, "♪ Note Player", ["Play", "Play file", "Options", "Exit"])
+                choice = _choose(keyboard, "♪ Note Player", ["Play", "Play file", "Save to file", "Options", "Exit"])
                 if choice == 0:
                     play_console(keyboard, settings, player)
                 elif choice == 1:
                     file_menu(keyboard, settings, player)
                 elif choice == 2:
+                    save_to_file(keyboard, settings, player)
+                elif choice == 3:
                     options_screen(keyboard, settings)
                 else:
                     break

@@ -1,4 +1,4 @@
-"""Note files: parse them into steps and play them back in time.
+"""Note files: parse them into steps, play them back in time, record new ones.
 
 One step per line: one or more notes (a chord) followed by how long to hold
 them, in seconds. ``x`` is a rest. ``#`` starts a comment.
@@ -12,6 +12,7 @@ them, in seconds. ``x`` is a rest. ``#`` starts a comment.
 
 from __future__ import annotations
 
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from typing import Callable
 REST = "x"
 _NOTE = re.compile(r"^([a-g])([#b]?)(-?\d)$")
 _SEMITONES = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
+_NAMES = ("c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b")
 
 
 class NoteFileError(ValueError):
@@ -107,3 +109,60 @@ def play(
         if not wait(max(0.0, deadline - time.monotonic())):
             return False
     return True
+
+
+# Notes pressed closer together than this are recorded as one chord.
+CHORD_WINDOW = 0.05
+
+
+class Recorder:
+    """Collects timed key presses and turns them into steps.
+
+    A step lasts until the next press, capped at ``hold`` (how long a note
+    sounds); any longer gap becomes a rest. Silence before the first note
+    is dropped.
+    """
+
+    def __init__(self, hold: float) -> None:
+        self.hold = hold
+        self._onsets: list[tuple[float, list[float]]] = []
+
+    def __len__(self) -> int:
+        return len(self._onsets)
+
+    def press(self, frequency: float, at: float) -> None:
+        if self._onsets and at - self._onsets[-1][0] < CHORD_WINDOW:
+            self._onsets[-1][1].append(frequency)
+        else:
+            self._onsets.append((at, [frequency]))
+
+    def steps(self) -> list[Step]:
+        steps = []
+        for index, (onset, frequencies) in enumerate(self._onsets):
+            if index + 1 < len(self._onsets):
+                gap = self._onsets[index + 1][0] - onset
+            else:
+                gap = self.hold
+            sounding = round(min(gap, self.hold), 2)
+            steps.append(Step(tuple(frequencies), sounding, len(steps) + 1))
+            if (rest := round(gap - sounding, 2)) > 0:
+                steps.append(Step((), rest, len(steps) + 1))
+        return steps
+
+
+def format_steps(steps: list[Step]) -> str:
+    lines = []
+    for step in steps:
+        notes = " ".join(note_token(f) for f in step.frequencies) or REST
+        lines.append(f"{notes} {step.duration:g}")
+    return "\n".join(lines) + "\n"
+
+
+def note_token(frequency: float) -> str:
+    """440.0 -> ``a4``; the inverse of :func:`note_frequency`."""
+    midi = round(69 + 12 * math.log2(frequency / 440.0))
+    return f"{_NAMES[midi % 12]}{midi // 12 - 1}"
+
+
+def save(path: str | Path, steps: list[Step]) -> None:
+    Path(path).write_text(format_steps(steps))

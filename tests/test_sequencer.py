@@ -65,3 +65,30 @@ class PlayTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecorderTest(unittest.TestCase):
+    def record(self, presses, hold=1.0):
+        recorder = sequencer.Recorder(hold)
+        for frequency, at in presses:
+            recorder.press(frequency, at)
+        return recorder.steps()
+
+    def test_chords_gaps_and_rests(self):
+        steps = self.record([(261.63, 10.0), (329.63, 10.02), (440.0, 10.5), (493.88, 13.0)])
+        self.assertEqual(sequencer.format_steps(steps), "c4 e4 0.5\na4 1\nx 1.5\nb4 1\n")
+
+    def test_empty(self):
+        self.assertEqual(self.record([]), [])
+
+    def test_note_token_round_trip(self):
+        for token in ("c4", "c#4", "a4", "b3", "f#5", "a#0", "c8"):
+            self.assertEqual(sequencer.note_token(note_frequency(token)), token)
+
+    def test_saved_file_plays_back_the_same(self):
+        steps = self.record([(220.0, 0), (277.18, 0.3), (329.63, 0.31), (440.0, 0.9)], hold=0.4)
+        reparsed = parse(sequencer.format_steps(steps))
+        self.assertEqual([s.duration for s in reparsed], [s.duration for s in steps])
+        for original, loaded in zip(steps, reparsed):
+            for a, b in zip(original.frequencies, loaded.frequencies):
+                self.assertAlmostEqual(a, b, delta=0.05)

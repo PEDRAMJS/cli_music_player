@@ -15,7 +15,7 @@ python3 main.py                       # menu
 python3 main.py songs/twinkle.notes   # play a note file directly
 ```
 
-Menu: **Play** · **Play file** · **Options** · **Exit** (arrows + Enter, or press 1-4).
+Menu: **Play** · **Play file** · **Save to file** · **Options** · **Exit** (arrows + Enter, or press 1-5).
 
 In the notes console:
 
@@ -45,6 +45,17 @@ f#4 0.5         # sharps with '#', flats with 'b' (bb3)
 Notes are `c`-`b` plus an octave number (`a4` = 440 Hz), case-insensitive.
 Comments start with a `#` token. Your instrument and volume from **Options**
 are used for playback. `Esc` stops playback.
+
+### Recording
+
+**Save to file** asks for a name, then opens the notes console in recording
+mode. Play as usual, and press `Esc` to stop and save to `songs/<name>.notes`,
+where **Play file** can play it.
+
+- Notes pressed within 50 ms of each other are saved as one chord.
+- Each note lasts until the next press, up to the note length set in
+  **Options**. A longer gap is saved as a rest (`x`).
+- Silence before the first note is dropped.
 
 ## How it works
 
