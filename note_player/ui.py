@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import sys
 import time
+from pathlib import Path
 
-from . import instruments
+from . import instruments, sequencer
 from .engine import NotePlayer
 from .keyboard import RawKeyboard
 from .notes import NOTE_KEY_MAP, frequency_for, note_name
 from .settings import Settings
+
+SONGS_DIR = Path(__file__).resolve().parent.parent / "songs"
+PROGRESS_WIDTH = 30
 
 CLEAR = "\x1b[2J\x1b[H"
 BOLD, DIM, INVERT, RESET = "\x1b[1m", "\x1b[2m", "\x1b[7m", "\x1b[0m"
@@ -141,7 +145,59 @@ def play_console(keyboard: RawKeyboard, settings: Settings, player: NotePlayer) 
         render()
 
 
-def run() -> int:
+def file_menu(keyboard: RawKeyboard, settings: Settings, player: NotePlayer) -> None:
+    files = sorted(SONGS_DIR.glob("*.notes"))
+    if not files:
+        _draw([f"No .notes files in {SONGS_DIR}", "", f"{DIM}Press any key{RESET}"])
+        keyboard.read_key()
+        return
+    choice = _choose(keyboard, "Play file", [path.stem for path in files])
+    if choice is not None:
+        play_file(keyboard, settings, player, files[choice])
+
+
+def play_file(keyboard: RawKeyboard, settings: Settings, player: NotePlayer, path: Path) -> None:
+    title = f"{BOLD}♪ {path.name}{RESET}  ·  {settings.instrument}  ·  vol {settings.volume}%"
+    try:
+        steps = sequencer.load(path)
+    except (OSError, sequencer.NoteFileError) as error:
+        _draw([title, "", f"Can't play this file: {error}", "", f"{DIM}Press any key{RESET}"])
+        keyboard.read_key()
+        return
+
+    instrument = instruments.create(settings.instrument)
+
+    def play_note(frequency: float, duration: float) -> None:
+        player.play(instrument, frequency, duration, settings.volume / 100)
+
+    def wait(seconds: float) -> bool:
+        end = time.monotonic() + seconds
+        while (left := end - time.monotonic()) > 0:
+            if keyboard.read_key(timeout=left) == "esc":
+                return False
+        return True
+
+    def show(index: int, step: sequencer.Step) -> None:
+        notes = " ".join(note_name(f) for f in step.frequencies) or "rest"
+        done = round(PROGRESS_WIDTH * (index + 1) / len(steps))
+        _draw([
+            title,
+            "",
+            f"  {notes:<16} {step.duration:g}s",
+            "",
+            f"  [{'#' * done}{'.' * (PROGRESS_WIDTH - done)}] {index + 1}/{len(steps)}",
+            "",
+            f"{DIM}Esc stop{RESET}",
+        ])
+
+    if sequencer.play(steps, play_note, wait, show):
+        _draw([title, "", "  Finished.", "", f"{DIM}Press any key{RESET}"])
+        keyboard.read_key()
+    else:
+        player.stop_all()
+
+
+def run(song: str | None = None) -> int:
     player = NotePlayer()
     if not player.backend.available():
         print("sox's `play` command was not found. Install sox (e.g. `sudo apt install sox`).")
@@ -153,11 +209,16 @@ def run() -> int:
     settings = Settings()
     try:
         with RawKeyboard() as keyboard:
+            if song:
+                play_file(keyboard, settings, player, Path(song))
+                return 0
             while True:
-                choice = _choose(keyboard, "♪ Note Player", ["Play", "Options", "Exit"])
+                choice = _choose(keyboard, "♪ Note Player", ["Play", "Play file", "Options", "Exit"])
                 if choice == 0:
                     play_console(keyboard, settings, player)
                 elif choice == 1:
+                    file_menu(keyboard, settings, player)
+                elif choice == 2:
                     options_screen(keyboard, settings)
                 else:
                     break

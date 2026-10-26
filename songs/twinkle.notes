@@ -1,0 +1,18 @@
+# Twinkle Twinkle Little Star
+# <note(s)> <seconds>   ·   x = rest   ·   several notes on a line = chord
+
+c4 0.5
+c4 0.5
+g4 0.5
+g4 0.5
+a4 0.5
+a4 0.5
+g4 0.8
+x 0.2
+f4 0.5
+f4 0.5
+e4 0.5
+e4 0.5
+d4 0.5
+d4 0.5
+c4 e4 g4 1.2

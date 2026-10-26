@@ -11,10 +11,11 @@ Play piano or guitar notes from your computer keyboard, in the terminal.
 ## Run
 
 ```sh
-python3 main.py
+python3 main.py                       # menu
+python3 main.py songs/twinkle.notes   # play a note file directly
 ```
 
-Menu: **Play** · **Options** · **Exit** (arrows + Enter, or press 1-3).
+Menu: **Play** · **Play file** · **Options** · **Exit** (arrows + Enter, or press 1-4).
 
 In the notes console:
 
@@ -28,6 +29,22 @@ In the notes console:
 - `Esc`: back to the menu
 
 **Options** lets you choose the instrument, octave, note length and volume.
+
+## Note files
+
+**Play file** lists the `*.notes` files in `songs/`. Each line is
+`<note(s)> <seconds>`:
+
+```
+a4 1.2          # A4 for 1.2 seconds
+x 1.2           # rest (silence)
+c4 e4 g4 0.8    # several notes = chord
+f#4 0.5         # sharps with '#', flats with 'b' (bb3)
+```
+
+Notes are `c`-`b` plus an octave number (`a4` = 440 Hz), case-insensitive.
+Comments start with a `#` token. Your instrument and volume from **Options**
+are used for playback. `Esc` stops playback.
 
 ## How it works
 
